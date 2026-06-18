@@ -4,12 +4,13 @@ server:
 spring:
   datasource:
     url: jdbc:mysql://localhost:3306/score_system?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
-username: root
-password: ln1214
-driver-class-name: com.mysql.cj.jdbc.Driver
-redis:
-  host: localhost
-  port: 6379
+    username: root
+    password: ln1214
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: localhost
+      port: 6379
 
 mybatis:
   mapper-locations: classpath:mapper/*.xml
