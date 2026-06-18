@@ -5,18 +5,27 @@ import com.score.mapper.ScoreMapper;
 import com.score.service.ScoreService;
 import com.score.strategy.ScoreStrategy;
 import com.score.strategy.ScoreStrategyFactory;
+import com.score.utils.ExcelUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.URLEncoder;
+import java.util.*;
 
 @Service
 public class ScoreServiceImpl implements ScoreService {
 
     @Autowired
     private ScoreMapper scoreMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private ScoreStrategyFactory strategyFactory;
@@ -29,21 +38,17 @@ public class ScoreServiceImpl implements ScoreService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void enterScore(Score score) {
-        // 1. 校验是否存在已有成绩（同一学生同课程只存一条）
         Score exist = scoreMapper.selectByStudentAndCourse(score.getStudentId(), score.getCourseId());
         if (exist != null) {
             score.setId(exist.getId());
             updateScore(score);
             return;
         }
-        // 2. 策略计算总分
         ScoreStrategy strategy = strategyFactory.getStrategy(score.getScoreType());
         score.setTotal(strategy.calculate(
                 score.getClassPerformance(), score.getExperiment(),
                 score.getHomework(), score.getFinalProject()));
-        // 3. 写入数据库
         scoreMapper.insert(score);
-        // 4. 更新 Redis ZSet 排名
         redisTemplate.opsForZSet().add(RANK_KEY_PREFIX + score.getCourseId(),
                 score.getStudentId(), score.getTotal().doubleValue());
     }
@@ -77,9 +82,67 @@ public class ScoreServiceImpl implements ScoreService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void batchImport(List<Score> scores) {
-        for (Score score : scores) {
-            enterScore(score);
+    public Map<String, Object> batchImport(InputStream inputStream, Long courseId) {
+        Map<String, List<Object>> parsed = ExcelUtils.readScores(inputStream);
+        List<Score> successList = (List) parsed.get("success");
+        List<Map<String, Object>> failList = (List) parsed.get("fail");
+
+        int successCount = 0;
+        for (Score s : successList) {
+            try {
+                // 根据学号查学生ID
+                Long studentId = jdbcTemplate.queryForObject(
+                        "SELECT id FROM student WHERE student_no = ?", Long.class, s.getStudentNo());
+                s.setStudentId(studentId);
+                s.setCourseId(courseId);
+                enterScore(s);
+                successCount++;
+            } catch (Exception e) {
+                Map<String, Object> fail = new HashMap<>();
+                fail.put("studentNo", s.getStudentNo());
+                fail.put("reason", "学号不存在或导入失败: " + e.getMessage());
+                failList.add(fail);
+            }
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("successCount", successCount);
+        result.put("failCount", failList.size());
+        result.put("failList", failList);
+        return result;
+    }
+
+    @Override
+    public void exportScores(Long courseId, HttpServletResponse response) {
+        try {
+            List<Score> scores = scoreMapper.selectByCourseId(courseId);
+            List<Map<String, Object>> dataList = new ArrayList<>();
+            int rank = 1;
+            for (Score s : scores) {
+                Map<String, Object> row = new HashMap<>();
+                row.put("rank", rank++);
+                row.put("studentNo", s.getStudentNo());
+                row.put("studentName", s.getStudentName());
+                row.put("classPerformance", s.getClassPerformance());
+                row.put("experiment", s.getExperiment());
+                row.put("homework", s.getHomework());
+                row.put("finalProject", s.getFinalProject());
+                row.put("scoreType", s.getScoreType());
+                row.put("total", s.getTotal());
+                dataList.add(row);
+            }
+
+            response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            response.setCharacterEncoding("utf-8");
+            String fileName = URLEncoder.encode("成绩单", "UTF-8");
+            response.setHeader("Content-disposition", "attachment;filename=" + fileName + ".xlsx");
+
+            OutputStream out = response.getOutputStream();
+            ExcelUtils.writeScores(dataList, out);
+            out.flush();
+            out.close();
+        } catch (Exception e) {
+            throw new RuntimeException("导出失败: " + e.getMessage());
         }
     }
 }
