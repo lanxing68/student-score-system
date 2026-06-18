@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.score.mapper.ScoreMapper">
+
+    <resultMap id="scoreMap" type="com.score.entity.Score">
+        <id property="id" column="id"/>
+        <result property="studentId" column="student_id"/>
+        <result property="courseId" column="course_id"/>
+        <result property="classPerformance" column="class_performance"/>
+        <result property="experiment" column="experiment"/>
+        <result property="homework" column="homework"/>
+        <result property="finalProject" column="final_project"/>
+        <result property="scoreType" column="score_type"/>
+        <result property="total" column="total"/>
+        <result property="createTime" column="create_time"/>
+    </resultMap>
+
+    <resultMap id="scoreDetailMap" type="com.score.entity.Score" extends="scoreMap">
+        <result property="studentName" column="student_name"/>
+        <result property="studentNo" column="student_no"/>
+        <result property="courseName" column="course_name"/>
+        <result property="term" column="term"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.score.entity.Score">
+        INSERT INTO score (student_id, course_id, class_performance, experiment,
+                           homework, final_project, score_type, total)
+        VALUES (#{studentId}, #{courseId}, #{classPerformance}, #{experiment},
+                #{homework}, #{finalProject}, #{scoreType}, #{total})
+    </insert>
+
+    <update id="update" parameterType="com.score.entity.Score">
+        UPDATE score SET class_performance = #{classPerformance},
+                         experiment = #{experiment},
+                         homework = #{homework},
+                         final_project = #{finalProject},
+                         score_type = #{scoreType},
+                         total = #{total}
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectById" resultMap="scoreMap">
+        SELECT * FROM score WHERE id = #{id}
+    </select>
+
+    <select id="selectByStudentAndCourse" resultMap="scoreMap">
+        SELECT * FROM score WHERE student_id = #{studentId} AND course_id = #{courseId}
+    </select>
+
+    <select id="selectByStudentId" resultMap="scoreDetailMap">
+        SELECT s.*, c.course_name, c.term
+        FROM score s LEFT JOIN course c ON s.course_id = c.id
+        WHERE s.student_id = #{studentId}
+        ORDER BY c.create_time DESC
+    </select>
+
+    <select id="selectByCourseId" resultMap="scoreDetailMap">
+        SELECT s.*, st.name AS student_name, st.student_no
+        FROM score s LEFT JOIN student st ON s.student_id = st.id
+        WHERE s.course_id = #{courseId}
+        ORDER BY s.total DESC
+    </select>
+
+    <delete id="deleteById">
+        DELETE FROM score WHERE id = #{id}
+    </delete>
+
+</mapper>
